@@ -1,0 +1,21 @@
+{
+  "name": "uwu-bot",
+  "version": "1.0.0",
+  "description": "An open source music bot for discord with a massive weeb vibe",
+  "main": "bot.js",
+  "author": "Alex Baldwin",
+  "dependencies": {
+    "artyom.js": "^1.0.6",
+    "discord.js": "^11.5.1",
+    "fluent-ffmpeg": "^2.1.2",
+    "got": "^8.3.2",
+    "haskell": "^0.4.1",
+    "lodash": "^4.17.20",
+    "node-opus": "^0.2.9",
+    "react-speech-recognition-input": "^0.1.1",
+    "speech-to-text": "^0.7.4",
+    "text2png": "^2.3.0",
+    "youtube-audio-stream": "0.0.50",
+    "ytdl-core": "^0.29.2"
+  }
+}
