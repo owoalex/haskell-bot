@@ -51,17 +51,21 @@ var botUserId = null;
 var debugLevel = 3;
 var triggerSuffix = null;
 var triggerPrefix = null;
+var triggerPrefixEval = null;
 var experimentalFeatureLevel = 0;
 var maxExecutionTime = 0;
+var maxInteractiveTime = 0;
 console.log("[   INFO   ] Initialising riamu-bot");
 try{keyFile = configFile["keys"];if(keyFile == undefined){throw "notFound";};}catch(ex){console.log("[*CRITICAL*] NO API KEYS!")}
 try{botUsername = configFile["botUsername"];if(botUsername == undefined){throw "notFound";};}catch(ex){console.log("[ WARNING  ] No username for bot, it may start talking to itself")}
 try{botUserId = configFile["botUserId"];if(botUserId == undefined){throw "notFound";};}catch(ex){console.log("[ WARNING  ] No user id for bot, it may start talking to itself")}
 try{debugLevel = configFile["debugLevel"];if(debugLevel == undefined){throw "notFound";};}catch(ex){console.log("[ WARNING  ] No debug level set, defaulting to max (you may get a lot of console clutter)");debugLevel = 3;}
 try{triggerSuffix = configFile["triggerSuffix"];if(triggerSuffix == undefined){throw "notFound";};}catch(ex){console.log("[   INFO   ] No trigger suffix set, disabling");triggerSuffix = null;}
-try{triggerPrefix = configFile["triggerPrefix"];if(triggerPrefix == undefined){throw "notFound";};}catch(ex){console.log("[   INFO   ] No trigger prefix set, disabline");triggerPrefix = null;}
+try{triggerPrefix = configFile["triggerPrefix"];if(triggerPrefix == undefined){throw "notFound";};}catch(ex){console.log("[   INFO   ] No trigger prefix set, disabling");triggerPrefix = null;}
+try{triggerPrefixEval = configFile["triggerPrefixEval"];if(triggerPrefixEval == undefined){throw "notFound";};}catch(ex){console.log("[   INFO   ] No trigger eval prefix set, disabling");triggerPrefixEval = null;}
 try{experimentalFeatureLevel = configFile["experimentalFeatureLevel"];if(experimentalFeatureLevel == undefined){throw "notFound";};}catch(ex){console.log("[   INFO   ] No experimental feature level set, defaulting to stable features");experimentalFeatureLevel = 0;}
 try{maxExecutionTime = configFile["maxExecutionTime"];if(maxExecutionTime == undefined){throw "notFound";};}catch(ex){console.log("[   INFO   ] No max execution time");maxExecutionTime = -1;}
+try{maxInteractiveTime = configFile["maxInteractiveTime"];if(maxInteractiveTime == undefined){throw "notFound";};}catch(ex){console.log("[   INFO   ] No max interactive time");maxInteractiveTime = -1;}
 
 if (!keyFile.startsWith("/")) {
     keyFile = path.join(__dirname,keyFile);
@@ -133,29 +137,29 @@ discordClientObject.on("disconnect", event => {
 discordClientObject.on('messageReactionAdd', (reaction, user) => {
     try{
         if (user.id != botUserId) {
-            var serverID = undefined;
+            var serverId = undefined;
             //console.log(message.guild.name)
             var foundServer = false;
             for (i=0;i<serverGlobVars.length;i++) {
                 if (serverGlobVars[i]["server"] == reaction.message.guild) {
                     foundServer = true;
-                    serverID = i;
+                    serverId = i;
                 }
             }
 
             if (foundServer) {
-                if (permissionState(user.id,serverID,"music","skip")){
-                    if (serverGlobVars[serverID]["lastQueue"].id == reaction.message.id) {
+                if (permissionState(user.id,serverId,"music","skip")){
+                    if (serverGlobVars[serverId]["lastQueue"].id == reaction.message.id) {
                         var reactionEmoji = reaction.emoji.name;
 
                         switch(reactionEmoji) {
                             case "\u23EE":
                                 if (debugLevel > 2){console.log("[   INFO   ] Button: PrevTrack");};
-                                commands.skipBack(null,reaction.message.channel,user.id,serverID);
+                                commands.skipBack(null,reaction.message.channel,user.id,serverId);
                                 break;
                             case "\u23ED":
                                 if (debugLevel > 2){console.log("[   INFO   ] Button: SkipForward");};
-                                commands.skipAhead(null,reaction.message.channel,user.id,serverID);
+                                commands.skipAhead(null,reaction.message.channel,user.id,serverId);
                                 break;
                             case "\u23EA":
                                 if (debugLevel > 2){console.log("[   INFO   ] Button: ScrubBack");};
@@ -168,11 +172,11 @@ discordClientObject.on('messageReactionAdd', (reaction, user) => {
                                 break;//FE0F
                             case "\u{1F500}":
                                 if (debugLevel > 2){console.log("[   INFO   ] Button: Shuffle");};
-                                commands.shuffle(null,reaction.message.channel,user.id,serverID);
+                                commands.shuffle(null,reaction.message.channel,user.id,serverId);
                                 break;//FE0F
                             case "\u{1F501}":
                                 if (debugLevel > 2){console.log("[   INFO   ] Button: Loop");};
-                                commands.loop(null,reaction.message.channel,user.id,serverID);
+                                commands.loop(null,reaction.message.channel,user.id,serverId);
                                 break;//FE0F
                         }
 
@@ -180,10 +184,10 @@ discordClientObject.on('messageReactionAdd', (reaction, user) => {
                             if (debugLevel > 2){console.log("[   INFO   ] Removed reaction from buttons");};
                     	});
                         //reaction.message.delete();
-                        //displayQueue(serverID);
+                        //displayQueue(serverId);
                     }
                 } else {
-                    serverGlobVars[serverID].messageChannel.send("You don't have the permission [music.skip] to do that ;-;");
+                    serverGlobVars[serverId].messageChannel.send("You don't have the permission [music.skip] to do that ;-;");
                 }
             }
             //if (reaction) {
@@ -223,91 +227,236 @@ function makeLowerCase(value) {
   return value.toString().toLowerCase();
 }
 
+function sanitizeGHCIInput(haskellExpression,messageChannel) {
+    if (haskellExpression.includes("writeFile")) {
+        messageChannel.send("File IO is not permitted on the GHCI bot");
+        throw("writeFile attempted");
+    }
+    if (haskellExpression.includes("appendFile")) {
+        messageChannel.send("File IO is not permitted on the GHCI bot");
+        throw("appendFile attempted");
+    }
+    if (haskellExpression.includes("readFile")) {
+        messageChannel.send("File IO is not permitted on the GHCI bot");
+        throw("readFile attempted");
+    }
+    if (haskellExpression.includes("readIO")) {
+        messageChannel.send("File IO is not permitted on the GHCI bot");
+        throw("readIO attempted");
+    }
+    if (haskellExpression.includes("readLn")) {
+        messageChannel.send("File IO is not permitted on the GHCI bot");
+        throw("readLn attempted");
+    }
+    if (haskellExpression.startsWith(":")) {
+        messageChannel.send("GHCI commands are not permitted on the GHCI bot");
+        throw("GHCI : command attempted");
+    }
+    return haskellExpression;
+}
+
 discordClientObject.on('message', message => {
     try{
-        if (((triggerSuffix != null) && message.content.endsWith(triggerSuffix)) || ((triggerPrefix != null) && message.content.startsWith(triggerPrefix))) {
-            if (message.author.id != botUserId) {
-                let rawMessage = message.content;
-                if (message.content.endsWith(triggerSuffix)){
-                    rawMessage = rawMessage.substring(0, message.content.length - (triggerSuffix.length));
-                } else {
-                    rawMessage = rawMessage.substring(triggerPrefix.length + 1, rawMessage.length);
+        let rawMessage = message.content;
+        let serverId = null;
+        let foundServer = false;
+        for (i=0;i<serverGlobVars.length;i++) {
+            if (serverGlobVars[i]["server"] == message.guild) {
+                foundServer = true;
+                serverId = i;
+            }
+        }
+        if (foundServer == false) {
+            let testRowIndex = serverGlobVars.push({
+                "server":message.guild,
+                "ghciProcesses":{},
+                "interactiveSessions":[]
+            }) - 1;
+            for (i=0;i<serverGlobVars.length;i++) {
+                if (serverGlobVars[i]["server"] == message.guild) {
+                    serverId = i;
                 }
-                let args = rawMessage.split(' ');
-                while (args.indexOf("") > -1) {
-                    args.splice(args.indexOf(""),1);
+            }
+        }
+        //console.log("[   INFO   ] serverId = " + serverId);
+        serverGlobVars[serverId].messageChannel = message.channel;
+        
+        let interactiveSession = null;
+        let interactiveSessionIndex = null;
+        
+        if (message.author.id != botUserId) {
+            for (let i=0; i<serverGlobVars[serverId]["interactiveSessions"].length; i++) {
+                if (serverGlobVars[serverId]["interactiveSessions"][i]["messageChannel"] == message.channel) {
+                    console.log("Bound to interactive session!");
+                    interactiveSession = serverGlobVars[serverId]["interactiveSessions"][i]["procId"];
+                    interactiveSessionIndex = i;
                 }
-                let cmd = makeLowerCase(args[0]);
-                let serverID = null;
-                //console.log(message.guild.name)
-                let foundServer = false;
-                for (i=0;i<serverGlobVars.length;i++) {
-                    if (serverGlobVars[i]["server"] == message.guild) {
-                        foundServer = true;
-                        serverID = i;
+            }
+        }
+        
+        if (interactiveSession != null) {
+            if (rawMessage == ":q") {
+                serverGlobVars[serverId]["ghciProcesses"][interactiveSession]["proc"].kill("SIGHUP");
+                delete serverGlobVars[serverId]["ghciProcesses"][interactiveSession];
+                serverGlobVars[serverId]["interactiveSessions"].splice(interactiveSessionIndex,1);
+                message.channel.send("Ending interactive session");
+            } else {
+                serverGlobVars[serverId]["ghciProcesses"][interactiveSession]["proc"].stdin.write(sanitizeGHCIInput(rawMessage.replace("\n","") + "\n",message.channel));
+            }
+        } else {
+            if ((triggerPrefixEval != null) && rawMessage.startsWith(triggerPrefixEval)) {
+                rawMessage = "ghci eval " + rawMessage.substring(1);
+            }
+            if (((triggerSuffix != null) && rawMessage.endsWith(triggerSuffix)) || ((triggerPrefix != null) && rawMessage.startsWith(triggerPrefix))) {
+                if (message.author.id != botUserId) {
+                    if (rawMessage.endsWith(triggerSuffix)){
+                        rawMessage = rawMessage.substring(0, rawMessage.length - (triggerSuffix.length));
+                    } else {
+                        rawMessage = rawMessage.substring(triggerPrefix.length + 1, rawMessage.length);
                     }
-                }
-                if (foundServer == false) {
-                    let testRowIndex = serverGlobVars.push({
-                        "server":message.guild,
-                        "ghciProcesses":{}
-                    }) - 1;
-                    for (i=0;i<serverGlobVars.length;i++) {
-                        if (serverGlobVars[i]["server"] == message.guild) {
-                            serverID = i;
-                        }
+                    let args = rawMessage.split(' ');
+                    while (args.indexOf("") > -1) {
+                        args.splice(args.indexOf(""),1);
                     }
-                }
-                console.log("[   INFO   ] ServerID = " + serverID);
-                serverGlobVars[serverID].messageChannel = message.channel;
-
-                args = args.splice(1);
-                switch(cmd) {
-                    // !ping
-                    case 'bruh':
-                        message.channel.send("***bruh***");
-                        break;
-                    case 'debug':
-                        var builtInsert = "Servers (" + serverGlobVars.length + ") :" + "\n";
-                        for (i=0;i<serverGlobVars.length;i++) {
-                            try{
-                                builtInsert = builtInsert + "    [" + i + "]" + serverGlobVars[i].server.name + "\n"
-                            }catch(ex){}
-                        }
-                        builtInsert = builtInsert + "Current Server ID :" + serverID + "\n"
-                        builtInsert = builtInsert + "Build Number :" + 3 + "\n"
-                        serverGlobVars[serverID].messageChannel.send("```markdown\n" + builtInsert + "```");
-                        break;
-                    case 'eval':
-                        if (args.length > 0) {
+                    let cmd = makeLowerCase(args[0]);
+                    
+                    args = args.splice(1);
+                    switch(cmd) {
+                        // !ping
+                        case 'bruh':
+                            message.channel.send("***bruh***");
+                            break;
+                        case 'debug':
+                            var builtInsert = "Servers (" + serverGlobVars.length + ") :" + "\n";
+                            for (i=0;i<serverGlobVars.length;i++) {
+                                try{
+                                    builtInsert = builtInsert + "    [" + i + "]" + serverGlobVars[i].server.name + "\n"
+                                }catch(ex){}
+                            }
+                            builtInsert = builtInsert + "Current Server ID :" + serverId + "\n"
+                            builtInsert = builtInsert + "Build Number :" + 3 + "\n"
+                            serverGlobVars[serverId].messageChannel.send("```markdown\n" + builtInsert + "```");
+                            break;
+                        case 'type':
+                        case 'kind':
+                        case 'eval':
+                            if (args.length > 0) {
+                                try {
+                                    //let haskellFunction = haskell(args.join(" "));
+                                    //let haskellResponse = haskellFunction();
+                                    let haskellProcessId = randomString(6, "aA#"); 
+                                    let haskellExpression = sanitizeGHCIInput(args.join(" "),message.channel);
+                                    if (cmd == "kind") {
+                                        haskellExpression = ":kind " + haskellExpression
+                                        //message.channel.send(haskellExpression);
+                                    }
+                                    if (cmd == "type") {
+                                        haskellExpression = ":type " + haskellExpression
+                                        //message.channel.send(haskellExpression);
+                                    }
+                                    //args.join(" ")
+                                    serverGlobVars[serverId]["ghciProcesses"][haskellProcessId] = {
+                                        "proc":childProcess.spawn("ghci",[],{"stdio":"pipe"}),
+                                        "messageChannel":message.channel,
+                                        "outputBuffer":"",
+                                        "errorBuffer":"",
+                                        "ready":false,
+                                        "commandIssued":false,
+                                        "outputGenerated":false,
+                                        "idle":false,
+                                        "exited":false,
+                                        "interactive":false,
+                                        "executionTime":0,
+                                        "lastOutput":0,
+                                        "enqueuedMessages":[],
+                                        "enqueuedErrors":[]
+                                    }
+                                    serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["proc"].stdout.on("data", (data) => {
+                                        try {
+                                            //console.log("GHCI " + serverId + ":" + haskellProcessId + " data=" + data);
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"] += data;
+                                            
+                                            let outBuf = serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"];
+                                            
+                                            do {
+                                                if (outBuf.includes("\n")) {
+                                                    //console.log(outBuf);
+                                                    //message.channel.send(outBuf);
+                                                    let lines = outBuf.split("\n");
+                                                    //console.log("[srvprnt] " + lines[0]);
+                                                    if (serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["commandIssued"] && (!serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputGenerated"])) {
+                                                        let response = lines[0];
+                                                        serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["enqueuedMessages"].push(response);
+                                                        serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["lastOutput"] = serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["executionTime"];
+                                                    }
+                                                    lines.splice(0,1);
+                                                    serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"] = lines.join("\n");
+                                                    outBuf = serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"];
+                                                }
+                                                if (outBuf.endsWith("> ")) {
+                                                    //console.log(outBuf);
+                                                    let lines = outBuf.split("\n");
+                                                    lines.splice(lines.length - 1,1);
+                                                    serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["enqueuedMessages"].push(lines.join("\n"));
+                                                    serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"] = "";
+                                                    //serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["proc"].stdin.write(":q");
+                                                    if (serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["commandIssued"]) {
+                                                        serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputGenerated"] = true;
+                                                        serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["proc"].stdin.write(":q\n");
+                                                    } else {
+                                                        serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["proc"].stdin.write(haskellExpression + "\n");
+                                                        serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["commandIssued"] = true;
+                                                    }
+                                                }
+                                            } while (outBuf.includes("\n"));
+                                        } catch(ex3) {
+                                            if (debugLevel > 0){console.log("[ HASKELL  ] " + ex3);}
+                                            if (debugLevel > 0){console.log(ex3.stack);}
+                                        };
+                                    });
+                                    
+                                    serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["proc"].stderr.on("data", (data) => {
+                                        try {
+                                            //console.log("GHCI " + serverId + ":" + haskellProcessId + " data=" + data);
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["errorBuffer"] += data;
+                                        } catch(ex3) {
+                                            if (debugLevel > 0){console.log("[ HASKELL  ] " + ex3);}
+                                            if (debugLevel > 0){console.log(ex3.stack);}
+                                        };
+                                    });
+                                    
+                                    serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["proc"].on("exit", (code) => {
+                                        try {
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["exited"] = true;
+                                        } catch(ex3) {
+                                            if (debugLevel > 0){console.log("[ HASKELL  ] " + ex3);}
+                                            if (debugLevel > 0){console.log(ex3.stack);}
+                                        };
+                                    });
+                                    
+                                } catch(ex2) {
+                                    if (debugLevel > 0){console.log("[ HASKELL  ] " + ex2);}
+                                    if (debugLevel > 0){console.log(ex2.stack);}
+                                };
+                            } else {
+                                message.channel.send("You need to provide an expression to evaluate!");
+                            }
+                            break;
+                        case "interactive":
                             try {
                                 //let haskellFunction = haskell(args.join(" "));
                                 //let haskellResponse = haskellFunction();
-                                let haskellProcessId = randomString(6, "aA#"); 
-                                let haskellExpression = args.join(" ");
+                                //let haskellTempFile = "/tmp/ghciBot" + randomString(6, "aA#") + ".hs";
+                                //try {
+                                //    fileSystem.writeFileSync(haskellTempFile, args.join(" "), { mode: 0o755 });
+                                //} catch(err) {
+                                //    console.error(err);
+                                //}
                                 
-                                if (haskellExpression.includes("writeFile")) {
-                                    message.channel.send("File IO is not permitted on the GHCI bot");
-                                    throw("writeFile attempted");
-                                }
-                                if (haskellExpression.includes("appendFile")) {
-                                    message.channel.send("File IO is not permitted on the GHCI bot");
-                                    throw("appendFile attempted");
-                                }
-                                if (haskellExpression.includes("readFile")) {
-                                    message.channel.send("File IO is not permitted on the GHCI bot");
-                                    throw("readFile attempted");
-                                }
-                                if (haskellExpression.includes("readIO")) {
-                                    message.channel.send("File IO is not permitted on the GHCI bot");
-                                    throw("readIO attempted");
-                                }
-                                if (haskellExpression.includes("readLn")) {
-                                    message.channel.send("File IO is not permitted on the GHCI bot");
-                                    throw("readLn attempted");
-                                }
-                                //args.join(" ")
-                                serverGlobVars[serverID]["ghciProcesses"][haskellProcessId] = {
+
+                                
+                                let haskellProcessId = randomString(6, "aA#"); 
+                                serverGlobVars[serverId]["ghciProcesses"][haskellProcessId] = {
                                     "proc":childProcess.spawn("ghci",[],{"stdio":"pipe"}),
                                     "messageChannel":message.channel,
                                     "outputBuffer":"",
@@ -315,139 +464,78 @@ discordClientObject.on('message', message => {
                                     "ready":false,
                                     "commandIssued":false,
                                     "outputGenerated":false,
-                                    "executionTime":0
+                                    "idle":false,
+                                    "exited":false,
+                                    "interactive":true,
+                                    "executionTime":0,
+                                    "lastOutput":0,
+                                    "enqueuedMessages":[],
+                                    "enqueuedErrors":[]
                                 }
-                                serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["proc"].stdout.on("data", (data) => {
-                                    try {
-                                        //console.log("GHCI " + serverID + ":" + haskellProcessId + " data=" + data);
-                                        serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["outputBuffer"] += data;
-                                        
-                                        let outBuf = serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["outputBuffer"];
-                                        
-                                        do {
-                                            if (outBuf.includes("\n")) {
-                                                //console.log(outBuf);
-                                                //message.channel.send(outBuf);
-                                                let lines = outBuf.split("\n");
-                                                //console.log("[srvprnt] " + lines[0]);
-                                                if (serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["commandIssued"] && (!serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["outputGenerated"])) {
-                                                    let response = lines[0];
-                                                    if (response.length > 1920) {
-                                                        if (response.length > 16384) {
-                                                            message.channel.send("GHCI returned more than 16384 characters, so the response can't be shown at all :(");
-                                                        } else {
-                                                            let responseProcessed = "";
-                                                            while (response.length > 0) {
-                                                                responseProcessed += response.substring(0, 64) + '\n';
-                                                                response = response.substring(64);
-                                                            }
-                                                            //console.log(response.replace(/&/g, "&amp;").replace(/>/g, "&gt;").replace(/</g, "&lt;").replace(/"/g, "&quot;"));
-                                                            fileSystem.writeFileSync("/tmp/ghciOutput" + haskellProcessId + ".png", text2png(responseProcessed, {
-                                                                font: "18px Roboto Mono",
-                                                                bgColor: "#36393f",
-                                                                textColor: "#ffffff",
-                                                                lineSpacing: 10,
-                                                                padding: 10
-                                                            }));
-                                                            message.channel.send("GHCI returned more than 1920 characters, so the response has to be displayed as an image");
-                                                            message.channel.send("", {
-                                                                files: [
-                                                                    "/tmp/ghciOutput" + haskellProcessId + ".png"
-                                                                ]
-                                                            });
-                                                        }
-                                                    } else {
-                                                        message.channel.send("```haskell\n" + response + "```");
-                                                    }
-                                                }
-                                                lines = lines.splice(0,1);
-                                                serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["outputBuffer"] = lines.join("\n");
-                                                outBuf = serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["outputBuffer"];
-                                            }
-                                            if (outBuf.endsWith("> ")) {
-                                                //console.log(outBuf);
-                                                serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["outputBuffer"] = "";
-                                                //serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["proc"].stdin.write(":q");
-                                                if (serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["commandIssued"]) {
-                                                    serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["outputGenerated"] = true;
-                                                    serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["proc"].stdin.write(":q\n");
-                                                } else {
-                                                    serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["proc"].stdin.write(haskellExpression + "\n");
-                                                    serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["commandIssued"] = true;
-                                                }
-                                            }
-                                        } while (outBuf.includes("\n"));
-                                    } catch(ex3) {
-                                        if (debugLevel > 0){console.log("[ HASKELL  ] " + ex3);}
-                                        if (debugLevel > 0){console.log(ex3.stack);}
-                                    };
+                                serverGlobVars[serverId]["interactiveSessions"].push({
+                                    "procId":haskellProcessId,
+                                    "messageChannel":message.channel
                                 });
-                                
-                                serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["proc"].stderr.on("data", (data) => {
+                                message.channel.send("Attaching GHCI standard input/output to this channel, type ':q' to quit, all messages will be redirected to GHCI");
+                                serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["proc"].stdout.on("data", (data) => {
                                     try {
-                                        serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["errorBuffer"] += data;
-                                        
-                                        let outBuf = serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["errorBuffer"];
+                                        serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"] += data;
+                                        let outBuf = serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"];
+                                
+                                        if (outBuf.includes("\n")) {
 
-                                        if (outBuf.endsWith("\n")) {
-                                            if (outBuf.length > 1) {
-                                                message.channel.send("GHCI returned an error:\n```" + outBuf.replace("<interactive>", "") + "```");
-                                            }
-                                            serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["errorBuffer"] = "";
+                                            let lines = outBuf.split("\n");
+
+                                            let response = lines.splice(0,(lines.length - 1)).join("\n");
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["enqueuedMessages"].push(response);
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["lastOutput"] = serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["executionTime"];
+                                            
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"] = lines.join("\n");
+                                            outBuf = serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"];
+                                        }
+                                        if (outBuf.endsWith("> ")) {
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["enqueuedMessages"].push("\n"+outBuf);
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"] = "";
+                                            outBuf = "";
                                         }
                                     } catch(ex3) {
                                         if (debugLevel > 0){console.log("[ HASKELL  ] " + ex3);}
                                         if (debugLevel > 0){console.log(ex3.stack);}
                                     };
                                 });
-                                
-                                serverGlobVars[serverID]["ghciProcesses"][haskellProcessId]["proc"].on("exit", (code) => {
+                                serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["proc"].stderr.on("data", (data) => {
                                     try {
-                                        delete serverGlobVars[serverID]["ghciProcesses"][haskellProcessId];
+                                        serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"] += data;
+                                        let outBuf = serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["errorBuffer"];
+                                
+                                        if (outBuf.includes("\n")) {
+
+                                            let lines = outBuf.split("\n");
+
+                                            let response = lines.splice(0,(lines.length - 1)).join("\n");
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["enqueuedErrors"].push(response);
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["lastOutput"] = serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["executionTime"];
+                                            
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["errorBuffer"] = lines.join("\n");
+                                            outBuf = serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["errorBuffer"];
+                                        }
                                     } catch(ex3) {
                                         if (debugLevel > 0){console.log("[ HASKELL  ] " + ex3);}
                                         if (debugLevel > 0){console.log(ex3.stack);}
                                     };
                                 });
-                                
                             } catch(ex2) {
                                 if (debugLevel > 0){console.log("[ HASKELL  ] " + ex2);}
                                 if (debugLevel > 0){console.log(ex2.stack);}
                             };
-                        } else {
-                            message.channel.send("You need to provide an expression to evaluate!");
-                        }
-                        break;
-                    case "codedfhsdfhsdfhsdfh":
-                        if (args.length > 0) {
-                            try {
-                                //let haskellFunction = haskell(args.join(" "));
-                                //let haskellResponse = haskellFunction();
-                                let haskellTempFile = "/tmp/ghciBot" + randomString(6, "aA#") + ".hs";
-                                try {
-                                    fileSystem.writeFileSync(haskellTempFile, args.join(" "), { mode: 0o755 });
-                                } catch(err) {
-                                    console.error(err);
-                                }
-                                
-                                let ghciProcess = childProcess.spawn("ghci",[haskellTempFile],{"stdio":"pipe"});
-                                ghciProcess.stdout.on("data", (data) => {
-                                    console.log("Received chunk " + data);
-                                });
-                            } catch(ex2) {
-                                if (debugLevel > 0){console.log("[ HASKELL  ] " + ex2);}
-                                if (debugLevel > 0){console.log(ex2.stack);}
-                            };
-                        } else {
-                            message.channel.send("You need to provide an expression to evaluate!");
-                        }
-                        break;
-                    case 'help':
-                        displayHelp(serverID)
-                        break;
-                    default:
-                        message.channel.send(cmd+"? That's not a valid command "+message.author.username);
-                    // Just add any case commands if you want to..
+                            break;
+                        case 'help':
+                            displayHelp(serverId)
+                            break;
+                        default:
+                            message.channel.send(cmd+"? That's not a valid command "+message.author.username);
+                        // Just add any case commands if you want to..
+                    }
                 }
             }
         }
@@ -457,20 +545,27 @@ discordClientObject.on('message', message => {
     };
 });
 
-function displayHelp(serverID) {
+function displayHelp(serverId) {
     var builtInsert = "";
     builtInsert = builtInsert + "\n\n**Hi, I'm the ghci bot!**";
-    builtInsert = builtInsert + "\nI'm not quite as good as ghci, so this can run on discord, there are limits on execution time and memory usage. IO functions are disabled.";
-    builtInsert = builtInsert + "\n\n**Commands:**";
-    builtInsert = builtInsert + "\n\neval <your expression>";
-    builtInsert = builtInsert + "\n  Evaluates a haskell expression";
+    builtInsert = builtInsert + "\nSo this can run on discord, there are limits on execution time and output size. File IO functions are disabled for security reasons.";
+    builtInsert = builtInsert + "\n\n**Commands:**\n\n";
+    if (triggerPrefixEval != null) {
+        builtInsert = builtInsert + "```" + triggerPrefixEval + "<your expression>```";
+    }
+    builtInsert = builtInsert + "```" + triggerPrefix + " eval <your expression>```";
+    builtInsert = builtInsert + "Evaluates a haskell expression\n\n";
+    builtInsert = builtInsert + "```" + triggerPrefix + " kind <your expression>```";
+    builtInsert = builtInsert + "Explains the kind of a data type\n\n";
+    builtInsert = builtInsert + "```" + triggerPrefix + " type <your expression>```";
+    builtInsert = builtInsert + "Explains the type of a variable\n\n";
     //builtInsert = builtInsert + "\n\ninteractive";
     //builtInsert = builtInsert + "\n  Starts an interactive ghci session";
     //builtInsert = builtInsert + "\n\ncode";
     //builtInsert = builtInsert + "\n  Runs the code you post after running this command";
     //builtInsert = builtInsert + "\n\nquit";
     //builtInsert = builtInsert + "\n  Quits an interactive session";
-    serverGlobVars[serverID].messageChannel.send(builtInsert);
+    serverGlobVars[serverId].messageChannel.send(builtInsert);
 }
 
 function secondsToHumanTime(time) {
@@ -500,16 +595,113 @@ function randomString(length, chars) {
     return result;
 }
 
+function outputMessages(serverId,procId) {
+    let outputText = "";
+    while (serverGlobVars[serverId]["ghciProcesses"][procId]["enqueuedMessages"].length > 0) {
+        let lineOut = serverGlobVars[serverId]["ghciProcesses"][procId]["enqueuedMessages"].splice(0,1)[0];
+        outputText = outputText + lineOut + "\n";
+    }
+    
+    if (serverGlobVars[serverId]["ghciProcesses"][procId]["errorBuffer"].length > 0) {
+        serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("GHCI returned an error:");
+        let linesOut = serverGlobVars[serverId]["ghciProcesses"][procId]["errorBuffer"].split("\n");
+        //linesOut.splice(0,2)
+        for (let i=0; i<linesOut.length; i++) {
+            if (linesOut[i].startsWith("<interactive>")) {
+                console.log(linesOut[i].indexOf("error:") + 6);
+                linesOut[i] = linesOut[i].substring((linesOut[i].indexOf("error:") + 7));
+            }
+        }
+        outputText = outputText + linesOut.join("\n") + "\n";
+    }
+    
+    //serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("```haskell\n"+outputText+"```");
+    
+    if (outputText.length > 1920) {
+        if (outputText.length > 16384) {
+            serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("GHCI returned more than 16384 characters, so the response can't be shown at all :(");
+        } else {
+            let responseProcessed = "";
+            while (outputText.length > 0) {
+                responseProcessed += outputText.substring(0, 64) + "\n";
+                outputText = outputText.substring(64);
+            }
+            fileSystem.writeFileSync("/tmp/ghciOutput" + procId + ".png", text2png(responseProcessed.substring(1), {
+                font: "18px Roboto Mono",
+                bgColor: "#36393f",
+                textColor: "#ffffff",
+                lineSpacing: 10,
+                padding: 10
+            }));
+            serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("GHCI returned more than 1920 characters, so the response has to be displayed as an image");
+            serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("", {
+                files: [
+                    "/tmp/ghciOutput" + procId + ".png"
+                ]
+            });
+        }
+    } else {
+        if (outputText.length > 1) {
+            serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("```haskell\n" + outputText + "```");
+        } else {
+            serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("GHCI didn't return any output (either GHCI crashed or this is a bug!)");
+        }
+    }
+    
+    serverGlobVars[serverId]["ghciProcesses"][procId]["proc"].kill("SIGHUP");
+    delete serverGlobVars[serverId]["ghciProcesses"][procId];
+}
+
 function routineChecks() {
     for (let i=0; i<serverGlobVars.length; i++) {
         for (const procId in serverGlobVars[i]["ghciProcesses"]) {
             //console.log("execTime " + serverGlobVars[i]["ghciProcesses"][procId]["executionTime"]);
             serverGlobVars[i]["ghciProcesses"][procId]["executionTime"]++;
-            if ((maxExecutionTime > 0) && (serverGlobVars[i]["ghciProcesses"][procId]["executionTime"] > maxExecutionTime)) {
-                serverGlobVars[i]["ghciProcesses"][procId]["proc"].kill("SIGHUP");
-                if (debugLevel > 2){console.log("[   INFO   ] Killed overruning haskell script");}
-                serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"].send("Script was terminated for taking too long ("+(maxExecutionTime/1000)+" seconds)");
-                delete serverGlobVars[i]["ghciProcesses"][procId];
+            
+            if (serverGlobVars[i]["ghciProcesses"][procId]["outputGenerated"]) {
+                //console.log("ExecTime " + serverGlobVars[i]["ghciProcesses"][procId]["executionTime"]);
+                //console.log("LastOutput " + serverGlobVars[i]["ghciProcesses"][procId]["lastOutput"]);
+                
+                if (serverGlobVars[i]["ghciProcesses"][procId]["executionTime"] > (serverGlobVars[i]["ghciProcesses"][procId]["lastOutput"] + 128)) {
+                    serverGlobVars[i]["ghciProcesses"][procId]["idle"] = true;
+                } else {
+                    serverGlobVars[i]["ghciProcesses"][procId]["idle"] = false;
+                }
+            } else {
+                //console.log("ExecTime Not Returned " + serverGlobVars[i]["ghciProcesses"][procId]["executionTime"]);
+            }
+            
+            if (serverGlobVars[i]["ghciProcesses"][procId]["interactive"]) {
+                if (serverGlobVars[i]["ghciProcesses"][procId]["enqueuedMessages"].length > 0) {
+                    if (serverGlobVars[i]["ghciProcesses"][procId]["executionTime"] > (serverGlobVars[i]["ghciProcesses"][procId]["lastOutput"] + 64)) {
+                        serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"].send("```haskell\n" + serverGlobVars[i]["ghciProcesses"][procId]["enqueuedMessages"].join("\n") + "```");
+                        serverGlobVars[i]["ghciProcesses"][procId]["enqueuedMessages"] = [];
+                    }
+                }
+            }
+            
+            if (serverGlobVars[i]["ghciProcesses"][procId]["idle"]) {
+                if (!serverGlobVars[i]["ghciProcesses"][procId]["interactive"]) {
+                    outputMessages(i,procId);
+                }
+            } else {
+                if (serverGlobVars[i]["ghciProcesses"][procId]["interactive"]) {
+                    if ((maxInteractiveTime > 0) && ((serverGlobVars[i]["ghciProcesses"][procId]["executionTime"] - serverGlobVars[i]["ghciProcesses"][procId]["lastOutput"]) > maxInteractiveTime)) {
+                        if (!serverGlobVars[i]["ghciProcesses"][procId]["idle"]) {
+                            if (debugLevel > 2){console.log("[   INFO   ] Killing old ghci environment");}
+                            serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"].send("Interactive session was terminated for being idle for too long ("+(maxInteractiveTime/1000)+" seconds)");
+                            outputMessages(i,procId);
+                        }
+                    }
+                } else {
+                    if ((maxExecutionTime > 0) && (serverGlobVars[i]["ghciProcesses"][procId]["executionTime"] > maxExecutionTime)) {
+                        if (!serverGlobVars[i]["ghciProcesses"][procId]["idle"]) {
+                            if (debugLevel > 2){console.log("[   INFO   ] Killing overruning haskell script");}
+                            serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"].send("Script was terminated for taking too long ("+(maxExecutionTime/1000)+" seconds)");
+                            outputMessages(i,procId);
+                        }
+                    }
+                }
             }
         }
     }
