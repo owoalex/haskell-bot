@@ -8,6 +8,6 @@ config["triggerSuffix"] = null;
 config["triggerPrefix"] = "ghci";
 config["triggerPrefixEval"] = "$";
 config["maxExecutionTime"] = 3000;
-config["maxInteractiveTime"] = 10 * 60 * 1000;
+config["maxInteractiveTime"] = 5 * 60 * 1000; // 10 * 60 * 1000
 config["experimentalFeatureLevel"] = 2;
 module.exports = config;

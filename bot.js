@@ -248,8 +248,8 @@ function sanitizeGHCIInput(haskellExpression,messageChannel) {
         messageChannel.send("File IO is not permitted on the GHCI bot");
         throw("readLn attempted");
     }
-    if (haskellExpression.startsWith(":")) {
-        messageChannel.send("GHCI commands are not permitted on the GHCI bot");
+    if ( haskellExpression.startsWith(":") && (!haskellExpression.startsWith(":{")) && (!haskellExpression.startsWith(":}")) && (!haskellExpression.startsWith(":info")) && (!haskellExpression.startsWith(":type")) && (!haskellExpression.startsWith(":kind")) ) {
+        messageChannel.send("GHCI commands apart from ( :type , :kind , :{ , :} , :info ) are not permitted on the GHCI bot");
         throw("GHCI : command attempted");
     }
     return haskellExpression;
@@ -300,8 +300,20 @@ discordClientObject.on('message', message => {
                 delete serverGlobVars[serverId]["ghciProcesses"][interactiveSession];
                 serverGlobVars[serverId]["interactiveSessions"].splice(interactiveSessionIndex,1);
                 message.channel.send("Ending interactive session");
+            } else if (rawMessage.startsWith("> ") || rawMessage.startsWith("--")) {
+                console.log("Ignoring careted chat");
             } else {
                 serverGlobVars[serverId]["ghciProcesses"][interactiveSession]["proc"].stdin.write(sanitizeGHCIInput(rawMessage.replace("\n","") + "\n",message.channel));
+                serverGlobVars[serverId]["ghciProcesses"][interactiveSession]["lastOutput"] = serverGlobVars[serverId]["ghciProcesses"][interactiveSession]["executionTime"];
+                if (rawMessage.startsWith(":{")) {
+                    serverGlobVars[serverId]["ghciProcesses"][interactiveSession]["multilineInput"] = true;
+                }
+                if (rawMessage.endsWith(":}")) {
+                    serverGlobVars[serverId]["ghciProcesses"][interactiveSession]["multilineInput"] = false;
+                }
+                if (!serverGlobVars[serverId]["ghciProcesses"][interactiveSession]["multilineInput"]) {
+                    serverGlobVars[serverId]["ghciProcesses"][interactiveSession]["idle"] = false;
+                }
             }
         } else {
             if ((triggerPrefixEval != null) && rawMessage.startsWith(triggerPrefixEval)) {
@@ -368,6 +380,7 @@ discordClientObject.on('message', message => {
                                         "interactive":false,
                                         "executionTime":0,
                                         "lastOutput":0,
+                                        "multilineInput":false,
                                         "enqueuedMessages":[],
                                         "enqueuedErrors":[]
                                     }
@@ -469,6 +482,7 @@ discordClientObject.on('message', message => {
                                     "interactive":true,
                                     "executionTime":0,
                                     "lastOutput":0,
+                                    "multilineInput":false,
                                     "enqueuedMessages":[],
                                     "enqueuedErrors":[]
                                 }
@@ -496,6 +510,7 @@ discordClientObject.on('message', message => {
                                         if (outBuf.endsWith("> ")) {
                                             serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["enqueuedMessages"].push("\n"+outBuf);
                                             serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["outputBuffer"] = "";
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["idle"] = true;
                                             outBuf = "";
                                         }
                                     } catch(ex3) {
@@ -518,6 +533,7 @@ discordClientObject.on('message', message => {
                                             
                                             serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["errorBuffer"] = lines.join("\n");
                                             outBuf = serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["errorBuffer"];
+                                            serverGlobVars[serverId]["ghciProcesses"][haskellProcessId]["idle"] = true;
                                         }
                                     } catch(ex3) {
                                         if (debugLevel > 0){console.log("[ HASKELL  ] " + ex3);}
@@ -559,8 +575,8 @@ function displayHelp(serverId) {
     builtInsert = builtInsert + "Explains the kind of a data type\n\n";
     builtInsert = builtInsert + "```" + triggerPrefix + " type <your expression>```";
     builtInsert = builtInsert + "Explains the type of a variable\n\n";
-    //builtInsert = builtInsert + "\n\ninteractive";
-    //builtInsert = builtInsert + "\n  Starts an interactive ghci session";
+    builtInsert = builtInsert + "```" + triggerPrefix + " interactive```";
+    builtInsert = builtInsert + "Starts an interactive ghci session\n\n";
     //builtInsert = builtInsert + "\n\ncode";
     //builtInsert = builtInsert + "\n  Runs the code you post after running this command";
     //builtInsert = builtInsert + "\n\nquit";
@@ -595,6 +611,40 @@ function randomString(length, chars) {
     return result;
 }
 
+
+function printOutput(outputText,messageChannel,procId) {
+    if (outputText.length > 1920) {
+        if (outputText.length > 16384) {
+            messageChannel.send("GHCI returned more than 16384 characters, so the response can't be shown at all :(");
+        } else {
+            let responseProcessed = "";
+            while (outputText.length > 0) {
+                responseProcessed += outputText.substring(0, 64) + "\n";
+                outputText = outputText.substring(64);
+            }
+            fileSystem.writeFileSync("/tmp/ghciOutput" + procId + ".png", text2png(responseProcessed.substring(1), {
+                font: "18px Roboto Mono",
+                bgColor: "#36393f",
+                textColor: "#ffffff",
+                lineSpacing: 10,
+                padding: 10
+            }));
+            messageChannel.send("GHCI returned more than 1920 characters, so the response has to be displayed as an image");
+            messageChannel.send("", {
+                files: [
+                    "/tmp/ghciOutput" + procId + ".png"
+                ]
+            });
+        }
+    } else {
+        if (outputText.length > 1) {
+            messageChannel.send("```haskell\n" + outputText + "```");
+        } else {
+            messageChannel.send("GHCI didn't return any output (either GHCI crashed or this is a bug!)");
+        }
+    }
+}
+
 function outputMessages(serverId,procId) {
     let outputText = "";
     while (serverGlobVars[serverId]["ghciProcesses"][procId]["enqueuedMessages"].length > 0) {
@@ -617,36 +667,7 @@ function outputMessages(serverId,procId) {
     
     //serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("```haskell\n"+outputText+"```");
     
-    if (outputText.length > 1920) {
-        if (outputText.length > 16384) {
-            serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("GHCI returned more than 16384 characters, so the response can't be shown at all :(");
-        } else {
-            let responseProcessed = "";
-            while (outputText.length > 0) {
-                responseProcessed += outputText.substring(0, 64) + "\n";
-                outputText = outputText.substring(64);
-            }
-            fileSystem.writeFileSync("/tmp/ghciOutput" + procId + ".png", text2png(responseProcessed.substring(1), {
-                font: "18px Roboto Mono",
-                bgColor: "#36393f",
-                textColor: "#ffffff",
-                lineSpacing: 10,
-                padding: 10
-            }));
-            serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("GHCI returned more than 1920 characters, so the response has to be displayed as an image");
-            serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("", {
-                files: [
-                    "/tmp/ghciOutput" + procId + ".png"
-                ]
-            });
-        }
-    } else {
-        if (outputText.length > 1) {
-            serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("```haskell\n" + outputText + "```");
-        } else {
-            serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"].send("GHCI didn't return any output (either GHCI crashed or this is a bug!)");
-        }
-    }
+    printOutput(outputText,serverGlobVars[serverId]["ghciProcesses"][procId]["messageChannel"],procId);
     
     serverGlobVars[serverId]["ghciProcesses"][procId]["proc"].kill("SIGHUP");
     delete serverGlobVars[serverId]["ghciProcesses"][procId];
@@ -674,32 +695,53 @@ function routineChecks() {
             if (serverGlobVars[i]["ghciProcesses"][procId]["interactive"]) {
                 if (serverGlobVars[i]["ghciProcesses"][procId]["enqueuedMessages"].length > 0) {
                     if (serverGlobVars[i]["ghciProcesses"][procId]["executionTime"] > (serverGlobVars[i]["ghciProcesses"][procId]["lastOutput"] + 64)) {
-                        serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"].send("```haskell\n" + serverGlobVars[i]["ghciProcesses"][procId]["enqueuedMessages"].join("\n") + "```");
+                        //serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"].send("```haskell\n" + serverGlobVars[i]["ghciProcesses"][procId]["enqueuedMessages"].join("\n") + "```");
+                        printOutput(serverGlobVars[i]["ghciProcesses"][procId]["enqueuedMessages"].join("\n"),serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"],procId);
                         serverGlobVars[i]["ghciProcesses"][procId]["enqueuedMessages"] = [];
                     }
                 }
             }
             
             if (serverGlobVars[i]["ghciProcesses"][procId]["idle"]) {
-                if (!serverGlobVars[i]["ghciProcesses"][procId]["interactive"]) {
-                    outputMessages(i,procId);
-                }
-            } else {
                 if (serverGlobVars[i]["ghciProcesses"][procId]["interactive"]) {
                     if ((maxInteractiveTime > 0) && ((serverGlobVars[i]["ghciProcesses"][procId]["executionTime"] - serverGlobVars[i]["ghciProcesses"][procId]["lastOutput"]) > maxInteractiveTime)) {
                         if (!serverGlobVars[i]["ghciProcesses"][procId]["idle"]) {
                             if (debugLevel > 2){console.log("[   INFO   ] Killing old ghci environment");}
+                            for (let j=0; j<serverGlobVars[i]["interactiveSessions"].length; j++) {
+                                if (procId == serverGlobVars[i]["interactiveSessions"][j]["procId"]) {
+                                    console.log("Splicing interactive session");
+                                    serverGlobVars[i]["interactiveSessions"].splice(j,1);
+                                }
+                            }
                             serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"].send("Interactive session was terminated for being idle for too long ("+(maxInteractiveTime/1000)+" seconds)");
-                            outputMessages(i,procId);
+                            delete serverGlobVars[i]["ghciProcesses"][procId];
                         }
                     }
                 } else {
-                    if ((maxExecutionTime > 0) && (serverGlobVars[i]["ghciProcesses"][procId]["executionTime"] > maxExecutionTime)) {
-                        if (!serverGlobVars[i]["ghciProcesses"][procId]["idle"]) {
-                            if (debugLevel > 2){console.log("[   INFO   ] Killing overruning haskell script");}
-                            serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"].send("Script was terminated for taking too long ("+(maxExecutionTime/1000)+" seconds)");
-                            outputMessages(i,procId);
+                    outputMessages(i,procId);
+                }
+                
+            } else {
+                if (serverGlobVars[i]["ghciProcesses"][procId]["interactive"]) {
+                    if ((maxExecutionTime > 0) && ((serverGlobVars[i]["ghciProcesses"][procId]["executionTime"] - serverGlobVars[i]["ghciProcesses"][procId]["lastOutput"]) > maxExecutionTime)) {
+                        if (debugLevel > 2){console.log("[   INFO   ] Killing overruning haskell script");}
+                        serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"].send("Script was terminated for taking too long ("+(maxExecutionTime/1000)+" seconds)");
+                        
+                        for (let j=0; j<serverGlobVars[i]["interactiveSessions"].length; j++) {
+                            if (procId == serverGlobVars[i]["interactiveSessions"][j]["procId"]) {
+                                console.log("Splicing interactive session");
+                                serverGlobVars[i]["interactiveSessions"].splice(j,1);
+                            }
                         }
+                        serverGlobVars[i]["ghciProcesses"][procId]["proc"].kill("SIGHUP");
+                        serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"].send("Ending interactive session");
+                        delete serverGlobVars[i]["ghciProcesses"][procId];
+                    }
+                } else {
+                    if ((maxExecutionTime > 0) && (serverGlobVars[i]["ghciProcesses"][procId]["executionTime"] > maxExecutionTime)) {
+                        if (debugLevel > 2){console.log("[   INFO   ] Killing overruning haskell script");}
+                        serverGlobVars[i]["ghciProcesses"][procId]["messageChannel"].send("Script was terminated for taking too long ("+(maxExecutionTime/1000)+" seconds)");
+                        outputMessages(i,procId);
                     }
                 }
             }
